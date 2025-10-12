@@ -1031,7 +1031,7 @@ function load_bruker(indir::String; headeronly::Bool=false, reco::Integer=1)
   visu_fov = Vector{Float32}(undef, 0)
   visu_orient = Vector{Float32}(undef, 0)
   visu_pos = Vector{Float32}(undef, 0)
-  disk_reverse_slice_order = false
+  visu_slice_reversed = false
 
   if isfile(visufile)
     io = open(visufile, "r")
@@ -1090,10 +1090,10 @@ function load_bruker(indir::String; headeronly::Bool=false, reco::Integer=1)
           # For 2D scans, there is one position per slice - use middle slice
           visu_pos = visu_pos[(length(visu_pos) ÷ 3 ÷ 2) * 3 .+ (1:3)]
         end
-      elseif startswith(ln, "##\$VisuCoreDiskSliceOrder") # Whether slices are reversed 
+      elseif startswith(ln, "##\$VisuCoreDiskSliceOrder") # Slice order in disk
         words = readline(io)
         if words == "disk_reverse_slice_order"
-          disk_reverse_slice_order = true
+          visu_slice_reversed = true
         end
       elseif startswith(ln, "##\$VisuAcqGradEncoding")	# Encode dimensions
         ln = readline(io)
@@ -1134,15 +1134,18 @@ function load_bruker(indir::String; headeronly::Bool=false, reco::Integer=1)
 
   # Construct voxel to LPS affine matrix
   vox2lps = [visu_orient[1] visu_orient[4] visu_orient[7] visu_pos[1];
-                  visu_orient[2] visu_orient[5] visu_orient[8] visu_pos[2]; 
-                  visu_orient[3] visu_orient[6] visu_orient[9] visu_pos[3];
-                  0              0              0              1          ] *
-                  Diagonal([mri.volres; 1])
+             visu_orient[2] visu_orient[5] visu_orient[8] visu_pos[2]; 
+             visu_orient[3] visu_orient[6] visu_orient[9] visu_pos[3];
+             0              0              0              1          ] *
+             Diagonal([mri.volres; 1])
 
-  # Account for disk_reverse_slice_order; in this case, 'visu_pos' stores the position of the first voxel of the last 2-dimensional frame in the stored dataset
-  if disk_reverse_slice_order
-    vox2lps[1:3,3] .= -1 .* vox2lps[1:3,3]   # flip z
-    vox2lps[1:3,4] .= vox2lps[1:3,4] .+ (visu_size[3] - 1) .* vox2lps[1:3,3] # update starting position
+  # Account for reversed slice order in stored dataset, where 'visu_pos' 
+  # stores the position of the first voxel of the last 2-dimensional frame 
+  if visu_slice_reversed
+    # Flip z
+    vox2lps[1:3,3] .= -1 .* vox2lps[1:3,3]
+    # Update starting position
+    vox2lps[1:3,4] .= vox2lps[1:3,4] .+ (visu_size[3] - 1) .* vox2lps[1:3,3] 
   end
 
   # Transform affine matrix from LPS to RAS
